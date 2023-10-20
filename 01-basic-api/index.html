@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>01 - Basic API</title>
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
+  <!-- Import Vue 3 -->
+  <script src="https://unpkg.com/vue@3"></script>
+  <!-- Import component library -->
+  <script src="https://unpkg.com/element-plus"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0
+    }
+
+    #app {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 40px 0;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="app">
+    <el-form inline label-width="100px">
+      <el-form-item label="摄像头" label-position="left">
+        <el-select v-model="videoDeviceId">
+          <el-option v-for="item in videoInputDevices" :label="item.label" :value="item.deviceId">{{ item.label
+            }}</el-option>
+        </el-select>
+      </el-form-item>
+      <el-form-item label="麦克风">
+        <el-select v-model="audioInputDeviceId">
+          <el-option v-for="item in audioInputDevices" :label="item.label" :value="item.deviceId">{{ item.label
+            }}</el-option>
+        </el-select>
+      </el-form-item>
+      <el-form-item label="听筒">
+        <el-select v-model="audioOutputDeviceId">
+          <el-option v-for="item in audioOuputDevices" :label="item.label" :value="item.deviceId">{{ item.label
+            }}</el-option>
+        </el-select>
+      </el-form-item>
+      <el-form-item label="分辨率Width">
+        <el-input v-model="width" />
+      </el-form-item>
+      <el-form-item label="分辨率Height">
+        <el-input v-model="height" />
+      </el-form-item>
+
+      <el-form-item label="FPS">
+        <el-input v-model="rate" />
+      </el-form-item>
+
+      <el-button type="primary" @click="update">更新</el-button>
+    </el-form>
+    <video ref="videoRef" autoplay controls muted></video>
+  </div>
+
+  <script>
+    const { createApp, ref } = Vue
+    const App = {
+      data() {
+        return {
+          constraints: {
+            video: true,
+            audio: true
+          },
+          stream: null,
+          isAuthorization: false,
+          rate: 24,
+          width: '',
+          height: '',
+          videoDeviceId: '',
+          audioInputDeviceId: '',
+          audioOutputDeviceId: '',
+          videoInputDevices: [],
+          audioOuputDevices: [],
+          audioInputDevices: []
+        };
+      },
+
+      created() {
+        this.init()
+      },
+
+      methods: {
+        async init() {
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            this.isAuthorization = false
+            alert('当前浏览器不支持WebRTC')
+            return
+          }
+          const stream = await this.getTargetUserMedia(this.constraints)
+          stream.getTracks().forEach(track => {
+            track.stop()
+          })
+          await this.getDevices()
+          this.isAuthorization = true
+        },
+        async getTargetUserMedia(constraints) {
+          if (this.stream) {
+            this.stream.getTracks().forEach(track => {
+              track.stop()
+            })
+          }
+          const stream = await navigator.mediaDevices.getUserMedia(constraints || this.constraints)
+          this.stream = stream
+          return stream
+        },
+        async getDevices() {
+          const devices = await navigator.mediaDevices.enumerateDevices(this.constraints)
+          const videoInput = devices.filter(e => e.kind === "videoinput")
+          const audioInput = devices.filter(e => e.kind === "audioinput")
+          const audioOutput = devices.filter(e => e.kind === "audiooutput")
+          this.videoInputDevices = videoInput
+          this.audioInputDevices = audioInput
+          this.audioOuputDevices = audioOutput
+        },
+        async update() {
+          const { videoDeviceId, audioInputDeviceId, audioOutputDeviceId, width, height, rate } = this
+          if (!videoDeviceId && !audioInputDeviceId) {
+            return
+          }
+          const constraints = {}
+          if (videoDeviceId) {
+            constraints.video = {
+              deviceId: {
+                exact: videoDeviceId
+              }
+            }
+          }
+          if (audioInputDeviceId) {
+            constraints.audio = {
+              deviceId: {
+                exact: audioInputDeviceId
+              }
+            }
+          }
+          if (width && height) {
+            const videoConfig = constraints.video || {}
+            videoConfig.width = parseInt(width)
+            videoConfig.height = parseInt(height)
+          }
+          if (rate) {
+            const videoConfig = constraints.video || {}
+            videoConfig.frameRate = { ideal: rate, max: 24 }
+          }
+
+          console.log("constraints: ", constraints)
+          const stream = await this.getTargetUserMedia(constraints)
+          console.log(this.$refs.videoRef)
+          console.log(stream)
+          this.$refs.videoRef.srcObject = stream
+          this.$refs.videoRef.muted = true
+        }
+      }
+    }
+    const app = createApp(App)
+    app.use(ElementPlus)
+    console.log(app)
+    app.mount('#app')
+  </script>
+</body>
+
+</html>
