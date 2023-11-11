@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Socket Client</title>
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="app">
+    <div>{{userInfo }}</div>
+    <div style="display: flex; align-items: center;">
+      <div v-for="(item, key, index) of roomUserList" :key="index">
+        <div>
+          <el-tag size="small" type="success">{{ '用户' + item.nickname }}</el-tag>
+        </div>
+        <div>
+          <el-button v-if="userInfo.userId !== item.userId" type="text" @click="call(item)">点击通话</el-button>
+          <el-button v-if="userInfo.userId === item.userId" type="text" @click="changeBitRate()">增加分辨率</el-button>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <h4>文本聊天</h4>
+      <input type="text" v-model="inputMsg"><button @click="sendMessageByDataChannel">发送消息</button>
+      <div>远端消息：{{ remoteMsg }}</div>
+    </div>
+    <div style="display: flex; align-items: center; justify-content: center;">
+      <div>
+        <div>localdemo01</div>
+        <video id="localdemo01" autoplay controls muted></video>
+      </div>
+      <div>
+        <div>remoteVideo01</div>
+        <video id="remoteVideo01" autoplay controls muted></video>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://unpkg.com/element-plus"></script>
+  <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"
+    integrity="sha384-c79GN5VsunZvi+Q/WObgk2in0CbZsHnjEqvFxC5DxHn9lTfNce2WW6h2pH6u/kF+"
+    crossorigin="anonymous"></script>
+  <script>
+    function getParams(queryName) {
+      let url = window.location.href
+      let query = decodeURI(url.split('?')[1]);
+      let vars = query.split("&");
+      for (var i = 0; i < vars.length; i++) {
+        var pair = vars[i].split("=");
+        if (pair[0] === queryName) {
+          return pair[1];
+        }
+      }
+      return null;
+    }
+  </script>
+
+  <script>
+    const { createApp, ref } = Vue
+    const app = createApp({
+      data() {
+        return {
+          userInfo: null,
+          roomUserList: {},
+          localRtcPC: null,
+          mapSender: [],
+          channel: null,
+          inputMsg: '',
+          remoteMsg: ''
+        }
+      },
+      created() {
+      },
+      methods: {
+        sendMessageByDataChannel() {
+          if (!this.inputMsg) {
+            return
+          }
+          if (!this.channel) {
+            return console.error('channel未建立成功')
+          }
+          this.channel.send(this.inputMsg)
+          this.inputMsg = ''
+        },
+        async call(item) {
+          const callerUserId = getParams('userId')
+          const calleeUserId = item.userId
+          this.initCallerInfo(callerUserId, calleeUserId)
+          const params = {
+            userId: callerUserId,
+            targetUid: calleeUserId
+          }
+          socket.emit('call', params)
+        },
+        async initCallerInfo(callerId, calleeId) {
+          this.mapSender = []
+          this.localRtcPC = new PeerConnection()
+          console.log(this.localRtcPC)
+          let localStream = await this.getLocalUserMedia({ video: true, audio: true })
+          for (const track of localStream.getTracks()) {
+            const s = this.localRtcPC.addTrack(track)
+            this.mapSender.push(s)
+          }
+          await this.setDomVideoStream("localdemo01", localStream)
+          this.onPcEvent(this.localRtcPC, callerId, calleeId)
+          let offer = await this.localRtcPC.createOffer({ iceRestart: true })
+          await this.localRtcPC.setLocalDescription(offer)
+          let params = {
+            "targetUid": calleeId,
+            "userId": callerId,
+            "offer": offer
+          }
+          socket.emit("offer", params)
+        },
+        setDomVideoStream(domId, newStream) {
+          let video = document.getElementById(domId)
+          let stream = video.srcObject
+          if (stream) {
+            stream.getAudioTracks().forEach(e => stream.removeTrack(e))
+            stream.getVideoTracks().forEach(e => stream.removeTrack(e))
+          }
+          video.srcObject = newStream
+          video.muted = true
+        },
+        onPcEvent(pc, localUid, remoteUid) {
+          // this.channel = pc.createDataChannel('chat')
+          pc.ontrack = (event) => {
+            console.log('pc event: ', event)
+            // this.setRemoteDomVideoStream("remoteVideo01", event.track)
+          }
+          pc.onnegotiationneeded = (e) => {
+            console.log("重新协商", e)
+          }
+          pc.ondatachannel = (e) => {
+            e.channel.onopen = () => {
+              console.log('Data channel open')
+            }
+            e.channel.onmessage = (data) => {
+              console.log('Data channel message', data)
+              this.remoteMsg = data.data
+            }
+            e.channel.onclose = () => {
+              console.log('Data channel close')
+            }
+          }
+          pc.onicecandidate = (e) => {
+            if (e.candidate) {
+              socket.emit('candidate', {
+                "targetUid": remoteUid,
+                "userId": userId,
+                "candidate": e.candidate
+              })
+            } else {
+              console.log("此次协商中，没有更多候选了")
+            }
+          }
+        },
+        async onCall(e) {
+          console.log('被呼叫：', e)
+          await this.initCalleeInfo(e['targetUid'], e['userId'])
+        },
+        async initCalleeInfo(localUid, fromUid) {
+          console.log('initCalleeInfo: ', localUid, fromUid)
+          this.localRtcPC = new PeerConnection()
+          let localStream = await this.getLocalUserMedia({ video: true, audio: true })
+          for (const track of localStream.getTracks()) {
+            this.localRtcPC.addTrack(track);
+          }
+          await this.setDomVideoStream("localdemo01", localStream)
+          this.onPcEvent(this.localRtcPC, localUid, fromUid)
+        },
+        async onRemoteOffer(data) {
+          const { userId: fromUid, offer } = data
+          console.log(data)
+          this.localRtcPC.setRemoteDescription(offer)
+          let answer = await this.localRtcPC.createAnswer()
+          await this.localRtcPC.setLocalDescription(answer)
+          const params = {
+            "targetUid": fromUid,
+            "userId": getParams("userId"),
+            "answer": answer
+          }
+          socket.emit('answer', params)
+        },
+        async onRemoteAnswer(data) {
+          const { answer } = data
+          await this.localRtcPC.setRemoteDescription(answer);
+        },
+        addIceCandidate(data) {
+          this.localRtcPC.addIceCandidate(data.candidate)
+        },
+        setRemoteDomVideoStream(domId, track) {
+          let video = document.getElementById(domId)
+          let stream = video.srcObject
+          if (stream) {
+            stream.addTrack(track)
+          } else {
+            let newStream = new MediaStream()
+            newStream.addTrack(track)
+            video.srcObject = newStream
+            video.muted = true
+          }
+        },
+        async getLocalUserMedia(constraints) {
+          return await navigator.mediaDevices.getUserMedia(constraints).catch(error => {
+            console.log('user media failed: ', error)
+          })
+        },
+        changeBitRate() {
+          console.log(this.localRtcPC)
+          const senders = this.localRtcPC.getSenders();
+          console.log('senders: ', senders)
+          const send = senders.find((s) => s.track.kind === 'video')
+          const parameters = send.getParameters();
+          parameters.encodings[0].maxBitrate = 1 * 1000 * 1024
+          send.setParameters(parameters);
+        }
+      },
+    })
+    app.use(ElementPlus);
+    app.mount('#app')
+  </script>
+
+  <script>
+    const PeerConnection = window.RTCPeerConnection || window.mozRTCPeerConnection || window.webkitRTCPeerConnection
+    const socketURL = 'ws://127.0.0.1:18080'
+    // const userId = `user${Math.random().toString(10).slice(-6)}`
+    const userId = getParams('userId') || `user${Math.random().toString(10).slice(-6)}`
+    const roomId = getParams('roomId') || `room1234`
+    // const url = `http://localhost:18080?userId=${userId}&roomId=${roomId}`
+    const socket = io(socketURL, {
+      query: {
+        "userId": userId,
+        "roomId": roomId,
+        "nickname": userId
+      }
+    })
+
+    app._instance.data.userInfo = {
+      userId,
+      roomId,
+      nickname: userId
+    }
+    console.log(app._instance.ctx.onCall)
+
+    socket.on('connect', (e) => {
+      console.log('socket connect success')
+    })
+    socket.on('error', (e) => {
+      console.error('socket connect error')
+    })
+    socket.on('roomUserList', (e) => {
+      Object.keys(e).forEach(item => {
+        e[item] = JSON.parse(e[item])
+      })
+      app._instance.data.roomUserList = e
+      console.log(app.roomUserList)
+    })
+
+    socket.on('msg', (e) => {
+      console.log(e)
+      const { type, data, msg } = e
+      const onJoin = () => {
+        setTimeout(() => {
+          // let params = { "roomId": getParams("roomId") }
+          let params = { "roomId": getParams("roomId") }
+          socket.emit('roomUserList', params)
+        }, 1000)
+      }
+
+      const handlers = {
+        'join': onJoin,
+        'leave': onJoin,
+        'call': app._instance.ctx.onCall,
+        'offer': app._instance.ctx.onRemoteOffer,
+        'answer': app._instance.ctx.onRemoteAnswer,
+        'candidate': app._instance.ctx.addIceCandidate
+      }
+      handlers[type] && handlers[type](data, msg)
+    })
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,23 @@
+{
+  "name": "02-signalling-server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "dev": "nodemon app.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "redis": "^4.6.10"
+  },
+  "dependencies": {
+    "mammoth": "^1.6.0",
+    "nodemon": "^3.0.1",
+    "pdf2json": "^3.0.4",
+    "pdfjs-dist": "^3.11.174",
+    "socket.io": "^4.7.2",
+    "word-extractor": "^1.0.4"
+  }
+}

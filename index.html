@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+    }
+
+    body,
+    html {
+      width: 100%;
+      height: 100%;
+    }
+
+    #app {
+      width: 100%;
+      height: 100%;
+      background-color: #000;
+    }
+
+    .message {
+      position: fixed;
+      z-index: 10;
+      color: #fff;
+      font-size: 16px;
+      animation: toLeft 1s;
+    }
+
+    #send {
+      position: fixed;
+      bottom: 40px;
+      right: 20px;
+      padding: 4px;
+      z-index: 11;
+    }
+
+    @keyframes toLeft {
+      0% {
+        margin-left: 20px;
+        opacity: 0;
+      }
+
+      100% {
+        opacity: 1;
+        margin-left: 0px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="app">
+    <div class="btns">
+      <button id="send">发送祝福</button>
+    </div>
+  </div>
+  <script>
+    const wrapper = document.querySelector('#app')
+    const sendBtn = document.querySelector('#send')
+
+    class Message {
+      constructor({ html, text, cssText, step, timeout, left, bottom }) {
+        const div = document.createElement('div')
+        div.style.cssText = cssText
+        this.el = div
+        this.text = text
+        this.step = step || Math.max(1, Math.floor(Math.random() * 5))
+        this.cssText = cssText
+        this.timeout = timeout || 3000
+        this.minBottom = -100
+        this.el.className += ' message'
+        this.left = left || 10 + Math.floor(Math.random() * window.innerWidth / 2)
+        this.bottom = bottom || window.innerHeight / 4 + Math.floor(Math.random() * window.innerHeight)
+        this.el.style.transform = `translate(${this.left}px, ${this.bottom}px)`
+        this.el.innerText = text
+
+        if (html) {
+          this.el.innerHTML = html
+        }
+        wrapper.appendChild(this.el)
+      }
+      update() {
+        if (this.bottom < this.minBottom) {
+          return
+        }
+        this.bottom -= this.step
+      }
+      render() {
+        if (this.bottom < this.minBottom) {
+          return
+        }
+        this.el.style.transform = `translate(${this.left}px, ${this.bottom}px)`
+      }
+    }
+
+    const texts = [
+      {
+        html: '<img width="115" height="42" src="https://p6-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/fca15ff0cb924d0190e1c89ec12e49bb~tplv-k3u1fbpfcp-jj:115:0:0:0:q75.avis#?w=328&h=120&s=39742&e=png&a=1&b=f4edd2" />',
+      },
+      {
+        text: '我爱你',
+        cssText: 'font-size: 20px'
+      },
+      {
+        text: '王鹏',
+        cssText: 'font-size: 20px'
+      },
+      {
+        text: '♥️♥️♥️',
+        cssText: 'font-size: 50px; color: red; letter-spacing: 2px'
+      },
+      {
+        text: 'I LOVE U',
+        cssText: 'font-size: 40px; color: red; letter-spacing: 2px'
+      }
+    ]
+    const getText = () => {
+      return texts[Math.floor(Math.random() * texts.length)]
+    }
+    const messages = []
+    messages.push(new Message(texts[0]))
+    messages.push(new Message(getText()))
+    messages.push(new Message(getText()))
+    messages.push(new Message(getText()))
+    messages.push(new Message(getText()))
+    messages.push(new Message(getText()))
+    
+    sendBtn.addEventListener('click', () => {
+      messages.push(new Message({ 
+        ...getText(),
+        // left: window.innerWidth - 150,
+        bottom: window.innerHeight - 100
+      }))
+    })
+
+    const start = () => {
+      messages.forEach(message => {
+        message.update()
+        message.render()
+      })
+      window.requestAnimationFrame(start)
+    }
+
+    start()
+  </script>
+</body>
+
+</html>
