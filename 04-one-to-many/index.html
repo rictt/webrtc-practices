@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Socket Client</title>
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="app">
+    <div style="display: flex; justify-content: center; padding: 10px 20px;">
+      <div style="width: 300px; padding-right: 20px;">
+        <div>在线用户列表</div>
+        <div style="display: flex; flex-direction: column;">
+          <div 
+            v-for="user in userList" 
+            :key="user.userId" 
+            style="margin-bottom: 20px; background-color: #ddd; height: 150px; display: flex; flex-direction: column; align-items: center; justify-content: center;"
+          >
+          <div>{{ user.userId }}</div>
+          <div v-if="user.pub === 'pub'">正在直播</div>
+          <div style="cursor: pointer;" v-if="user.pub === 'pub' && user.userId !== userInfo.userId" @click="onClickLink(user)">点击连线</div>
+          </div>
+        </div>
+      </div>
+      <div style="flex: 1">
+        <video style="width: 100%;" id="liveStreamVideo" muted autoplay controls></video>
+        <!-- <video style="width: 100%;" id="localdemo01" muted autoplay controls></video>
+        <video style="width: 100%;" id="remoteVideo01" muted autoplay controls></video> -->
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://unpkg.com/element-plus"></script>
+  <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"
+    integrity="sha384-c79GN5VsunZvi+Q/WObgk2in0CbZsHnjEqvFxC5DxHn9lTfNce2WW6h2pH6u/kF+"
+    crossorigin="anonymous"></script>
+  <script>
+    function getParams(queryName) {
+      let url = window.location.href
+      let query = decodeURI(url.split('?')[1]);
+      let vars = query.split("&");
+      for (var i = 0; i < vars.length; i++) {
+        var pair = vars[i].split("=");
+        if (pair[0] === queryName) {
+          return pair[1];
+        }
+      }
+      return null;
+    }
+  </script>
+
+  <script>
+    const getPcKey = (userId, otherUserId) => {
+      return userId + '-' + otherUserId
+    }
+    const RTCMaps = new Map()
+    const PeerConnection = window.RTCPeerConnection || window.mozRTCPeerConnection || window.webkitRTCPeerConnection
+    const socketURL = 'ws://127.0.0.1:18080'
+    const { createApp, ref } = Vue
+    const app = createApp({
+      data() {
+        return {
+          rtcPcParams:{
+					// iceTransportPolicy: 'relay', //强制走中继
+            iceServers: [
+              // {urls: 'turn:x.x.x.x:3478', username:'suc', credential:'suc001'}
+            ]
+          },
+          socket: null,
+          userList: [],
+          userInfo: null,
+          isPub: false,
+          localRtcPC: null,
+          localStream: null,
+          channel: null,
+          inputMsg: '',
+          remoteMsg: ''
+        }
+      },
+      created() {
+        this.init()
+      },
+      methods: {
+        onClickLink() {
+          this.initMeetingRoom()
+        },
+        async init() {
+          const userId = getParams("userId")
+          const roomId = getParams("roomId")
+          const pub = getParams("pub") || "no"
+          this.userInfo = {
+            userId: userId,
+            roomId,
+            nickname: userId,
+            pub
+          }
+          this.isPub = pub === 'pub'
+          this.socket = io(socketURL, {
+            query: this.userInfo
+          })
+
+          
+          this.socket.on("connect", () => console.log('connected'))
+          this.socket.on("error", () => console.log('error'))
+          this.socket.on("roomUserList", (data) => {
+            console.log('roomUserList: ', data)
+            Object.keys(data).forEach(key => {
+              data[key] = JSON.parse(data[key])
+            })
+            this.userList = data
+          })
+          this.socket.on('msg', (e) => {
+            console.log(e.type, e.data)
+            const { data, type } = e
+            if (type === 'join' || type === 'leave') {
+              this.emitRoomUserList()
+            }
+            if (type === 'call') {
+              this.initCalleeInfo(this.userInfo.userId, data['userId'])
+            }
+            if (type === 'offer') {
+              this.onRemoteOffer(data)
+            }
+            if (type === 'answer') {
+              this.onRemoteAnswer(data)
+            }
+            if (type === 'candidate') {
+              this.onIceCandidate(data)
+            }
+          })
+          if (this.isPub) {
+            this.localStream = await this.getLocalUserMedia({ video: true, audio: true })
+            this.setDomVideoStream('liveStreamVideo', this.localStream)
+          }
+          setTimeout(() => {
+            // this.initMeetingRoom()
+          }, 3000)
+        },
+        async initMeetingRoom() {
+          if (this.isPub) {
+            return
+          }
+          const userList = Object.values(this.userList)
+          console.log(userList)
+          let publisher = userList.find(e => e.userId !== this.userInfo.userId && e.pub)
+          if (!publisher) {
+            console.log('没有找到正在直播的教师')
+            return
+          }
+          console.log(publisher)
+          // publisher = publisher[0]
+          const pcKey = getPcKey(this.userInfo.userId, publisher.userId)
+          let pc = RTCMaps.get(pcKey)
+          if (!pc) {
+            pc = new PeerConnection(this.rtcPcParams)
+            RTCMaps.set(pcKey, pc)
+          }
+          pc.addTransceiver('audio', { direction: 'recvonly' })
+          pc.addTransceiver('video', { direction: 'recvonly' })
+          this.onPcEvent(pc, this.userInfo.userId, publisher.userId)
+          // await this.createDa
+          let offer = await pc.createOffer()
+          await pc.setLocalDescription(offer)
+          let params = {
+            targetUid: publisher.userId,
+            userId: this.userInfo.userId,
+            offer,
+          }
+          this.socket.emit('offer', params)
+        },
+        emitRoomUserList() {
+          setTimeout(() => {
+            const params = { "roomId": this.userInfo.roomId }
+            this.socket.emit('roomUserList', params)
+          }, 1000)
+        },
+        sendMessageByDataChannel() {
+          if (!this.inputMsg) {
+            return
+          }
+          if (!this.channel) {
+            return console.error('channel未建立成功')
+          }
+          this.channel.send(this.inputMsg)
+          this.inputMsg = ''
+        },
+        async call(item) {
+          console.log('call item: ', item)
+          const callerUserId = getParams('userId')
+          const calleeUserId = item.userId
+          this.initCallerInfo(callerUserId, calleeUserId)
+          const params = {
+            userId: callerUserId,
+            targetUid: calleeUserId
+          }
+         this.socket.emit('call', params)
+        },
+        async initCallerInfo(callerId, calleeId) {
+          this.mapSender = []
+          this.localRtcPC = new PeerConnection()
+          let localStream = await this.getLocalUserMedia({ video: true, audio: true })
+          for (const track of localStream.getTracks()) {
+            this.localRtcPC.addTrack(track)
+            // const s = this.localRtcPC.addTrack(track)
+            // this.mapSender.push(s)
+          }
+          await this.setDomVideoStream("localdemo01", localStream)
+          this.onPcEvent(this.localRtcPC, callerId, calleeId)
+          let offer = await this.localRtcPC.createOffer({ iceRestart: true })
+          await this.localRtcPC.setLocalDescription(offer)
+          let params = {
+            "targetUid": calleeId,
+            "userId": callerId,
+            "offer": offer
+          }
+          this.socket.emit("offer", params)
+        },
+        setDomVideoStream(domId, newStream) {
+          let video = document.getElementById(domId)
+          let stream = video.srcObject
+          if (stream) {
+            stream.getAudioTracks().forEach(e => stream.removeTrack(e))
+            stream.getVideoTracks().forEach(e => stream.removeTrack(e))
+          }
+          video.srcObject = newStream
+          video.muted = true
+        },
+        onPcEvent(pc, localUid, remoteUid) {
+          // this.channel = pc.createDataChannel('chat')
+          pc.ontrack = (event) => {
+            console.log('pc event: ', event)
+            this.setRemoteDomVideoStream("liveStreamVideo", event.track)
+          }
+          pc.onnegotiationneeded = (e) => {
+            console.log("重新协商", e)
+          }
+          pc.ondatachannel = (e) => {
+            e.channel.onopen = () => {
+              console.log('Data channel open')
+            }
+            e.channel.onmessage = (data) => {
+              console.log('Data channel message', data)
+              this.remoteMsg = data.data
+            }
+            e.channel.onclose = () => {
+              console.log('Data channel close')
+            }
+          }
+          pc.onicecandidate = (e) => {
+            if (e.candidate) {
+              this.socket.emit('candidate', {
+                "targetUid": remoteUid,
+                "userId": this.userInfo.userId,
+                "candidate": e.candidate
+              })
+            } else {
+              console.log("此次协商中，没有更多候选了")
+            }
+          }
+        },
+        async onCall(e) {
+          console.log('被呼叫：', e)
+          await this.initCalleeInfo(e['targetUid'], e['userId'])
+        },
+        async initCalleeInfo(localUid, fromUid) {
+          console.log('initCalleeInfo: ', localUid, fromUid)
+          this.localRtcPC = new PeerConnection()
+          let localStream = await this.getLocalUserMedia({ video: true, audio: true })
+          for (const track of localStream.getTracks()) {
+            this.localRtcPC.addTrack(track);
+          }
+          await this.setDomVideoStream("localdemo01", localStream)
+          this.onPcEvent(this.localRtcPC, localUid, fromUid)
+        },
+        async onRemoteOffer(data) {
+          const { userId: fromUid, offer } = data
+          const pcKey = getPcKey(this.userInfo.userId, fromUid)
+          const pc = new PeerConnection(this.rtcPcParams)
+          RTCMaps.set(pcKey, pc)
+          this.onPcEvent(pc, this.userInfo.userId, fromUid)
+          for (const track of this.localStream.getTracks()) {
+            pc.addTrack(track)
+          }
+          pc.setRemoteDescription(offer)
+          let answer = await pc.createAnswer()
+          await pc.setLocalDescription(answer)
+          const params = {
+            "targetUid": fromUid,
+            "userId": getParams("userId"),
+            "answer": answer
+          }
+          this.socket.emit('answer', params)
+        },
+        async onRemoteAnswer(data) {
+          const { answer } = data
+          // await this.localRtcPC.setRemoteDescription(answer);
+          const pcKey = getPcKey(this.userInfo.userId, data.userId)
+          const pc = RTCMaps.get(pcKey)
+          await pc.setRemoteDescription(answer);
+        },
+        onIceCandidate(data) {
+          const { userId, candidate } = data
+          const pcKey = getPcKey(this.userInfo.userId, userId)
+          const pc = RTCMaps.get(pcKey)
+          pc.addIceCandidate(candidate)
+          // this.localRtcPC.addIceCandidate(data.candidate)
+        },
+        setRemoteDomVideoStream(domId, track) {
+          let video = document.getElementById(domId)
+          let stream = video.srcObject
+          if (stream) {
+            stream.addTrack(track)
+          } else {
+            let newStream = new MediaStream()
+            newStream.addTrack(track)
+            video.srcObject = newStream
+            video.muted = true
+          }
+        },
+        async getLocalUserMedia(constraints) {
+          return await navigator.mediaDevices.getUserMedia(constraints).catch(error => {
+            console.log('user media failed: ', error)
+          })
+        },
+        changeBitRate() {
+          console.log(this.localRtcPC)
+          const senders = this.localRtcPC.getSenders();
+          console.log('senders: ', senders)
+          const send = senders.find((s) => s.track.kind === 'video')
+          const parameters = send.getParameters();
+          parameters.encodings[0].maxBitrate = 1 * 1000 * 1024
+          send.setParameters(parameters);
+        }
+      },
+    })
+    app.use(ElementPlus);
+    app.mount('#app')
+  </script>
+ 
+</body>
+
+</html>
