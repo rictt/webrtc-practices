@@ -1,0 +1,23 @@
+[
+  {
+    "roomName": "自定义房间1",
+    "roomId": 1234,
+    "ownerId": 1010,
+    "status": -1,
+    "userList": []
+  },
+  {
+    "roomName": "自定义房间2",
+    "roomId": 4567,
+    "ownerId": 1010,
+    "status": -1,
+    "userList": []
+  },
+  {
+    "roomId": "2f4a849da1d6",
+    "roomName": "1234",
+    "ownerId": "1010",
+    "status": -1,
+    "userList": []
+  }
+]

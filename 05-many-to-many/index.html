@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Socket Client</title>
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+    }
+    body, html {
+      height: 100%;
+    }
+    #app {
+      height: 100%;
+    }
+
+    .video-wrap {
+      position: relative;
+      margin-bottom: 10px;
+      /* width: 49%; */
+      /* height: 300px; */
+      width: 100%;
+      height: 100%;
+    }
+    .video-wrap:hover .video-wrap-help {
+      display: flex;
+    }
+    .video-wrap-help {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, .5);
+    }
+    .video-wrap-help .el-button {
+      margin-left: 0;
+      margin-bottom: 6px;
+    }
+    .room-content {
+      display: flex;
+      height: 100%;
+      justify-content: space-between;
+    }
+    .room-content .el-divider--vertical {
+      height: 100%;
+      padding: 0 20px;
+    }
+    .room-form {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 400px;
+    }
+
+    .room-list {
+      display: flex;
+      flex: 1;
+      padding: 20px 40px;
+      flex-wrap: nowrap;
+    }
+    .room-item {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 200px;
+      height: 100px;
+      border-radius: 4px;
+      border: 1px solid #eee;
+      margin-right: 10px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      box-shadow: 2px 2px 4px #eee;
+      transition: all .3s;
+    }
+    .room-item:hover {
+      box-shadow: 4px 4px 8px #eee;
+    }
+    .user-item {
+      position: relative; 
+      margin-bottom: 20px; 
+      background-color: #ddd; 
+      height: 150px; 
+      display: flex; 
+      flex-direction: column; 
+      align-items: center; 
+      justify-content: center;
+    }
+    .user-item-name {
+      position: absolute; 
+      right: 0; 
+      top: 0;
+      color: blue;
+      font-weight: bold;
+      padding: 4px 8px;
+      z-index: 10;
+      background-color: #fff;
+      border-bottom-left-radius: 10px;
+    }
+    .user-item-sharing {
+      position: absolute;
+      color: #555;
+      font-weight: bold;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="app">
+    <div class="room-content"  v-show="showRoomList">
+      <div class="room-list">
+        <div class="room-item" v-for="room in roomList" :key="room.roomId" @click="joinRoom(room)">
+          <div>{{ room.roomName }}</div>
+          <div>房主：{{ room.ownerId }}</div>
+          <div>用户数：{{ room.userList.length }}</div>
+        </div>
+      </div>
+      <el-divider direction="vertical"></el-divider>
+      <div class="room-form">
+        <h3 style="margin: 20px 0;">创建自己的房间</h3>
+        <el-form>
+          <el-form-item label="房间名称" required>
+            <el-input v-model="roomForm.roomName" />
+          </el-form-item>
+          <el-form-item label="">
+            <div style="width: 100%; text-align: center;">
+              <el-button type="primary" @click="createRoom">立即创建</el-button>
+            </div>
+          </el-form-item>
+        </el-form>
+      </div>
+    </div>
+    <div v-show="!showRoomList" style="display: flex; justify-content: center; padding: 10px 20px;">
+      <div style="width: 300px; padding-right: 20px;">
+        <el-button @click="startConnect" type="primary" v-if="currentRoom && currentRoom.ownerId === userId">开始连线</el-button>
+        <el-button @click="updateSharer" type="primary" v-if="!sharingUserId || sharingUserId !== userInfo.userId">上台</el-button>
+        <el-button @click="shareScreenStream" type="primary">分享屏幕</el-button>
+        <el-button @click="leave" type="primary">离开房间</el-button>
+        <el-divider></el-divider>
+        <div>在线用户列表</div>
+        <div>{{ sharingUserId }}</div>
+        <div style="display: flex; flex-direction: column;">
+          <div 
+            v-for="user in userList" 
+            :key="user.userId"
+            class="user-item">
+            <template v-if="sharingUserId && user.userId === sharingUserId">
+              <div class="user-item-sharing">正在分享</div>
+            </template>
+            <template v-else>
+              <div class="user-item-name">{{ user.userId }}</div>
+            </template>
+            <video 
+              class="user-item-video" 
+              :id="user.userId === userInfo.userId ? 'localVideo' : user.userId" 
+              style="width: 100%; height: 100%;" muted autoplay controls>
+            </video>
+          </div>
+        </div>
+      </div>
+      <div style="flex: 1; display: flex; justify-content: space-between; flex-wrap: wrap;">
+        <div class="video-wrap">
+          <video style="width: 100%; height: 100%;" id="shareVideo" muted autoplay controls></video>
+          <div class="video-wrap-help">
+            <el-button type="primary" @click="controlVideo(true)">打开视频</el-button>
+            <el-button type="primary" @click="controlVideo(false)">关闭视频</el-button>
+            <!-- <el-button type="primary">打开麦克风</el-button>
+            <el-button type="primary">关闭麦克风</el-button> -->
+          </div>
+        </div>
+        <!-- <video style="margin-bottom: 10px; width: 49%; height: 300px" v-for="u in otherUserList" :id="u.userId"
+          :key="u.userId" muted autoplay controls></video> -->
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://unpkg.com/element-plus"></script>
+  <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"
+    integrity="sha384-c79GN5VsunZvi+Q/WObgk2in0CbZsHnjEqvFxC5DxHn9lTfNce2WW6h2pH6u/kF+"
+    crossorigin="anonymous"></script>
+  <script>
+    function getParams(queryName) {
+      let url = window.location.href
+      let query = decodeURI(url.split('?')[1]);
+      let vars = query.split("&");
+      for (var i = 0; i < vars.length; i++) {
+        var pair = vars[i].split("=");
+        if (pair[0] === queryName) {
+          return pair[1];
+        }
+      }
+      return null;
+    }
+  </script>
+
+  <script>
+    const getPcKey = (userId, otherUserId) => {
+      return userId + '-' + otherUserId
+    }
+    const { ElMessage, ElMessageBox } = ElementPlus
+    const RTCMaps = new Map()
+    const PeerConnection = window.RTCPeerConnection || window.mozRTCPeerConnection || window.webkitRTCPeerConnection
+    const socketURL = 'ws://127.0.0.1:18080'
+    const { createApp, ref } = Vue
+    const app = createApp({
+      data() {
+        return {
+          showRoomList: true,
+          sharingUserId: "",
+          roomForm: {
+            roomName: ""
+          },
+          roomList: [],
+          rtcPcParams: {
+            iceServers: []
+          },
+          currentRoom: null,
+          userId: null,
+          roomId: null,
+          socket: null,
+          userList: [],
+          userInfo: null,
+          localStream: null,
+        }
+      },
+      computed: {
+        otherUserList() {
+          return this.userList.filter(e => e.userId !== this.userInfo?.userId)
+        }
+      },
+
+      created() {
+        this.init()
+      },
+
+      methods: {
+        updateSharer() {
+          const params = {
+            roomId: this.userInfo.roomId,
+            userId: this.userInfo.userId
+          }
+          this.socket.emit('roomSharer', params)
+        },
+        createRoom() {
+          if (!this.roomForm.roomName) {
+            return
+          }
+          const params = {
+            userId: this.userInfo.userId,
+            roomName: this.roomForm.roomName
+          }
+          this.socket.emit('createRoom', params)
+          this.roomForm.roomName = ''
+          setTimeout(() => {
+            ElementPlus.ElMessage.success('创建成功')
+            this.socket.emit('roomList')
+          }, 500)
+        },
+        joinRoom(item) {
+          const { roomId, status } = item
+          this.currentRoom = item
+          this.roomId = roomId
+          this.userInfo.roomId = roomId
+          this.showRoomList = false
+          const params = {
+            userId: this.userId,
+            roomId,
+          }
+          this.socket.emit('joinRoom', params)
+        },
+        async leave() {
+          this.showRoomList = true
+          if (this.roomId) {
+            const params = {
+              userId: this.userId,
+              roomId: this.roomId
+            }
+            this.socket.emit('leaveRoom', params)
+          }
+        },
+        async controlVideo(isOpen) {
+          RTCMaps.forEach((pc, key) => {
+            const senders = pc.getSenders()
+            const videoSenders = senders.filter(e => e.track.kind === 'video')
+            videoSenders.forEach(sender => {
+              sender.track.enabled = isOpen
+            })
+          })
+          this.localStream.getVideoTracks()[0].enabled = isOpen
+        },
+        async shareScreenStream() {
+          if (this.localStream) {
+            for(const track of this.localStream.getTracks()) {
+              this.localStream.removeTrack(track)
+            }
+          }
+          this.localStream = await navigator.mediaDevices.getDisplayMedia({
+            video: true
+          })
+          const mapInterator = RTCMaps.entries()
+          for (const [key, pc] of mapInterator) {
+            if (key.indexOf(this.userInfo.userId) !== -1) {
+              for (const track of this.localStream.getTracks()) {
+                const senders = pc.getSenders()
+                const videoSenders = senders.filter(e => e.track.kind === 'video')
+                videoSenders.forEach(sender => {
+                  sender.replaceTrack(track)
+                })
+              }
+            }
+          }
+          this.setDomVideoStream('localVideo', this.localStream)
+          if (this.sharingUserId === this.userInfo.userId) {
+            this.setDomVideoStream('shareVideo', this.localStream)
+          } else {
+          }
+        },
+        async initLocalStream() {
+          if (!this.localStream) {
+            this.localStream = await this.getLocalUserMedia({ video: true })
+            this.setDomVideoStream('localVideo', this.localStream)
+          }
+          return Promise.resolve()
+        },
+        async getLocalUserMedia(constraints) {
+          return await navigator.mediaDevices.getUserMedia(constraints).catch(error => {
+            console.log('user media failed: ', error)
+          })
+        },
+        async startConnect() {
+          this.socket.emit('roomStatus', {
+            roomId: this.currentRoom.roomId,
+            status: 2
+          })
+          await this.initLocalStream()
+          this.updateSharer()
+          this.connectToOtherWithoutCall()
+        },
+        async init() {
+          const userId = getParams("userId")
+          const roomId = getParams("roomId")
+          this.userId = userId
+          this.roomId = roomId
+          this.userInfo = {
+            userId: userId,
+            roomId: roomId || '',
+            nickname: userId,
+          }
+          this.socket = io(socketURL, {
+            query: this.userInfo
+          })
+
+          this.socket.on("connect", () => console.log('connected'))
+          this.socket.on("error", () => console.log('error'))
+          this.socket.on('roomList', (data) => {
+            console.log('roomList', data)
+            this.roomList = data
+          })
+          this.socket.emit('roomList')
+          this.socket.on("roomUserList", async (data) => {
+            console.log('roomUserList: ', data)
+            Object.keys(data).forEach(key => {
+              data[key] = JSON.parse(data[key])
+            })
+            this.userList = data
+            if (this.currentRoom && this.currentRoom.status === 2) {
+              await this.connectToOtherWithoutCall()
+            }
+          })
+          this.socket.on('roomSharer', async (data) => {
+            setTimeout(() => {
+              console.log('room sharer: ', data)
+              const { userId } = data
+              this.sharingUserId = userId
+              if (this.sharingUserId && this.sharingUserId === this.userInfo.userId) {
+                if (this.localStream) {
+                  this.setDomVideoStream('shareVideo', this.localStream)
+                }
+              } else {
+                const video = document.getElementById(userId)
+                this.setDomVideoStream('shareVideo', video.srcObject)
+              }
+            }, 300)
+          })
+          this.socket.on('msg', (e) => {
+            console.log(e.type, e.data)
+            const { data, type } = e
+            if (type === 'join' || type === 'leave') {
+              this.emitRoomUserList()
+            }
+            if (type === 'call') {
+              this.initCalleeInfo(this.userInfo.userId, data['userId'])
+            }
+            if (type === 'offer') {
+              this.onRemoteOffer(data)
+            }
+            if (type === 'answer') {
+              this.onRemoteAnswer(data)
+            }
+            if (type === 'candidate') {
+              this.onIceCandidate(data)
+            }
+          })
+        },
+        async connectToOtherWithoutCall() {
+          await this.initLocalStream()
+          const otherList = this.otherUserList
+          for (const user of otherList) {
+            const pcKey = getPcKey(this.userInfo.userId, user.userId)
+            let pc = RTCMaps.get(pcKey)
+            if (pc) {
+              continue
+            }
+            pc = new PeerConnection(this.rtcPcParams)
+            RTCMaps.set(pcKey, pc)
+            this.onPcEvent(pc, this.userInfo.userId, user.userId)
+            for (const track of this.localStream.getTracks()) {
+              pc.addTrack(track)
+            }
+            const offer = await pc.createOffer()
+            await pc.setLocalDescription(offer)
+            const params = {
+              targetUid: user.userId,
+              userId: this.userInfo.userId,
+              offer
+            }
+            RTCMaps.set(pcKey, pc)
+            this.socket.emit('offer', params)
+          }
+        },
+        emitRoomUserList() {
+          setTimeout(() => {
+            const params = { "roomId": this.roomId || this.userInfo.roomId }
+            this.socket.emit('roomUserList', params)
+          }, 1000)
+        },
+        onPcEvent(pc, localUid, remoteUid) {
+          // this.channel = pc.createDataChannel('chat')
+          pc.ontrack = (event) => {
+            console.log('pc event: ', event, event.track)
+            console.log('remoteUid: ', remoteUid)
+            // this.setDomVideoStream(remoteUid, event.track)
+            this.setRemoteDomVideoStream(remoteUid, event.track)
+          }
+          pc.onnegotiationneeded = (e) => {
+            console.log("重新协商", e)
+          }
+          pc.ondatachannel = (e) => {
+            e.channel.onopen = () => {
+              console.log('Data channel open')
+            }
+            e.channel.onmessage = (data) => {
+              console.log('Data channel message', data)
+              this.remoteMsg = data.data
+            }
+            e.channel.onclose = () => {
+              console.log('Data channel close')
+            }
+          }
+          pc.onicecandidate = (e) => {
+            if (e.candidate) {
+              this.socket.emit('candidate', {
+                "targetUid": remoteUid,
+                "userId": this.userInfo.userId,
+                "candidate": e.candidate
+              })
+            } else {
+              console.log("此次协商中，没有更多候选了")
+            }
+          }
+        },
+        async initCalleeInfo(localUid, fromUid) {
+          const content = `用户：${fromUid}请求进行通话`
+          ElMessageBox.confirm(content, '会议通话', {
+            confirmButtonText: '确定',
+            cancelButtonText: '取消',
+          }).then(() => {
+            ElMessage.success('正在建立通话')
+            this.socket.emit('roomStatus', {
+              roomId: this.currentRoom.roomId,
+              status: 2
+            })
+            this.createOffer(localUid, fromUid)
+          }).catch((error) => {
+            console.log(error)
+            ElMessage.error('已取消')
+          })
+        },
+        async createOffer(localUid, fromUid) {
+          const pcKey = getPcKey(localUid, fromUid)
+          const pc = RTCMaps.get(pcKey) || new PeerConnection(this.rtcPcParams)
+          if (pc.__offer) {
+            return
+          }
+          RTCMaps.set(pcKey, pc)
+          this.onPcEvent(pc, localUid, fromUid)
+          // 当建立通信时，要初始化本地的stream，然后将stream的track添加到pc上
+          await this.initLocalStream()
+          for (const track of this.localStream.getTracks()) {
+            pc.addTrack(track)
+          }
+          const offer = await pc.createOffer()
+          await pc.setLocalDescription(offer)
+          const params = {
+            targetUid: fromUid,
+            userId: localUid,
+            offer
+          }
+          console.log('send offer')
+          this.socket.emit("offer", params)
+        },
+        async onRemoteOffer(data) {
+          console.log('on Remote offer: ', data)
+          const { userId: fromUid, offer } = data
+          const pcKey = getPcKey(this.userInfo.userId, fromUid)
+          const pc = RTCMaps.get(pcKey) || new PeerConnection(this.rtcPcParams)
+          RTCMaps.set(pcKey, pc)
+          this.onPcEvent(pc, this.userInfo.userId, fromUid)
+          await this.initLocalStream()
+          for (const track of this.localStream.getTracks()) {
+            pc.addTrack(track)
+          }
+          pc.setRemoteDescription(offer)
+          let answer = await pc.createAnswer()
+          await pc.setLocalDescription(answer)
+          const params = {
+            "targetUid": fromUid,
+            "userId": getParams("userId"),
+            "answer": answer
+          }
+          this.socket.emit('answer', params)
+        },
+        async onRemoteAnswer(data) {
+          console.log("on remote answer:", data)
+          const { answer } = data
+          const pcKey = getPcKey(this.userInfo.userId, data.userId)
+          const pc = RTCMaps.get(pcKey)
+          if (pc) {
+            await pc.setRemoteDescription(answer);
+          }
+        },
+        onIceCandidate(data) {
+          const { userId, candidate } = data
+          const pcKey = getPcKey(this.userInfo.userId, userId)
+          const pc = RTCMaps.get(pcKey)
+          pc.addIceCandidate(candidate)
+        },
+        setDomVideoStream(domId, newStream) {
+          let video = document.getElementById(domId)
+          let stream = video.srcObject
+          if (stream) {
+            stream.getAudioTracks().forEach(e => stream.removeTrack(e))
+            stream.getVideoTracks().forEach(e => stream.removeTrack(e))
+          }
+          video.srcObject = newStream
+          video.muted = true
+        },
+        setRemoteDomVideoStream(domId, track) {
+          let video = document.getElementById(domId)
+          if (!video) {
+            setTimeout(() => {
+              // 考虑一下为啥会获取不到
+              this.setRemoteDomVideoStream(domId, track)
+            }, 500)
+            return console.error(`domId ${domId}不存在`)
+          }
+          let stream = video.srcObject
+          if (stream) {
+            stream.getTracks().forEach(e => stream.removeTrack(e))
+            stream.addTrack(track)
+          } else {
+            let newStream = new MediaStream()
+            newStream.addTrack(track)
+            video.srcObject = newStream
+            video.muted = true
+          }
+        },
+      },
+    })
+    app.use(ElementPlus);
+    app.mount('#app')
+  </script>
+
+</body>
+
+</html>
