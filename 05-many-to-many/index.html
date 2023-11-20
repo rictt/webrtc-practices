@@ -244,6 +244,10 @@
         this.init()
       },
 
+      mounted() {
+        this.getAllStats()
+      },
+
       methods: {
         updateSharer() {
           const params = {
@@ -586,8 +590,49 @@
             video.muted = true
           }
         },
+        getAllStats() {
+          const values = Array.from(RTCMaps.entries())
+          for (const [userId, pc] of values) {
+            this.getStats(pc, userId)
+          }
+          setTimeout(() => {
+            this.getAllStats()
+          }, 1000)
+        },
+        async getStats(pc, userId) {
+          const lastStats = statsMap.get(userId)
+          const stats = await pc.getStats()
+          stats.forEach((report) => {
+            let bytes;
+            let headerBytes;
+            let packets;
+
+            if (report.type === 'outbound-rtp' && report.kind === 'video') {
+              const now = report.timestamp;
+              bytes = report.bytesSent;
+              headerBytes = report.headerBytesSent;
+              packets = report.packetsSent;
+
+              if (lastStats && lastStats.has(report.id)) {
+                let bf = bytes - lastStats.get(report.id).bytesSent
+                let hbf = headerBytes - lastStats.get(report.id).headerBytesSent
+                let pacf = packets - lastStats.get(report.id).packetsSent
+                let t = now - lastStats.get(report.id).timestamp
+
+                // calculate bitrate
+                const bitrate = (8 * bf / t).toFixed(2)
+                const headerrate = (8 * hbf / t).toFixed(2)
+                const packetrate = Math.floor(1000 * pacf / t)
+                console.log(`Bitrate ${bitrate} kbps, overhead ${headerrate} kbps, ${packetrate} packets/seconds`)
+              }
+            }
+          })
+          statsMap.set(userId, stats)
+        }
       },
     })
+
+    const statsMap = new Map()
     app.use(ElementPlus);
     app.mount('#app')
   </script>
