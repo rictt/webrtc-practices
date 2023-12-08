@@ -80,7 +80,8 @@
   - 左侧：用户列表
   - 中间：主屏幕
   - 右侧：文本交流区域
-
+- 视频
+  - 允许多个屏幕分享（即摄像头 + 屏幕等）
 ### 流程/逻辑设计
 - 房间列表
   - 每个房间有
@@ -92,3 +93,31 @@
 - 用户
   - 用户名称
   - 用户id
+
+
+## Janus & mediasoup
+
+### 问题
+- janus是做了什么角色？不是纯P2P么，经过janus之后感觉通话延迟变高了
+
+## 架构
+
+### Mesh
+
+### SFU（Selective Forwarding Uni）
+
+  janus下的SFU，一个房间，分两种用户，一种是订阅者subscriber，另外一种是发布者publisher;
+  当用户以各自的身份加入到房间后，有不同的操作
+
+  - publisher
+    - 发布，分享自己的屏幕
+    - 加入房间
+  - subscriber
+    - 订阅某个/全部发布者的屏幕
+  - videoroom event
+    - joined当加入房间成功
+      - 发布自己的流，把自己的SDP发送到服务器上，createOffer
+      - 找到其他publishers，进行关联（需要初始化新的handle具柄，通过类型subscriber进行关联）
+        - 通过订阅后，监听remotetrack事件，设置对应的画面信息
+      - ps：所谓发布订阅，其实每一个用户既是发布者也是订阅者，当加入房间时，首先是publisher，然后获取到房间内正在直播的publisher，此时去以subscriber的身份去订阅流
+

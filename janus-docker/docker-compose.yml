@@ -1,0 +1,20 @@
+version: '1.2.0'
+# version: '3'
+services:
+  janus-gateway:
+    image: 'sucwangsr/janus-webrtc-gateway-docker:1.2.0'
+    # image: 'sucwangsr/janus-webrtc-gateway-docker:20221018'
+    # image: 'sucwangsr/janus-webrtc-gateway-docker:1.2.0-arm64'
+    command: ["/usr/local/bin/janus", "-F", "/usr/local/etc/janus"]
+    # command: sh -c "nginx && /usr/local/bin/janus -F /usr/local/etc/janus"
+    network_mode: "host"
+    volumes:
+      # - "/Users/joey/Code/webrtc/webrtc-practices/janus-docker/conf/janus.jcfg:/usr/local/etc/janus/janus.jcfg"
+      # - "/Users/joey/Code/webrtc/webrtc-practices/janus-docker/conf/janus.transport.http.jcfg:/usr/local/etc/janus/janus.transport.http.jcfg" 
+      # - "/Users/joey/Code/webrtc/webrtc-practices/janus-docker/record:/home/janus-gateway/record"
+      # - "/Users/joey/Code/webrtc/webrtc-practices/janus-docker/ssl:/home/ssl"
+      - "/home/janus-docker/conf/janus.jcfg:/usr/local/etc/janus/janus.jcfg"
+      - "/home/janus-docker/conf/janus.transport.http.jcfg:/usr/local/etc/janus/janus.transport.http.jcfg" 
+      - "/home/janus-docker/record:/home/janus-gateway/record"
+      - "/home/janus-docker/ssl:/home/ssl"
+    restart: always
